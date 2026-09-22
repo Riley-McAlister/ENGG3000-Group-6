@@ -6,7 +6,7 @@ If you want to play the game, navigate to the directory `ENGG3000-Group-6/game` 
 
 `./game.exe`
 
-The machine running the game will then need to connect to the ESP-32 created Wi-Fi network "ES3-AM-06-GATEWAY" in order to properly update the physical player's location.
+The machine running the game will then need to connect to the ESP-32 created Wi-Fi network `ES3-AM-06-GATEWAY` with the password `PASSWORD` in order to properly update the physical player's location. When you run the game for the first time, you may receive a system security alert. You want to allow the program on 'Public' networks, since the ESP32 Wi-Fi counts as one. The physical tracking will not work if you do not check the box. If you have already set and accepted the incorrect rule, you will need to navigate to your machine's firewalls security settings and either amend the rule or delete the firewall rule and re-do this step.
 In the absence of the player's physical location, the player is free to use the directional arrow keys to move the player around.
 
 The player must run over moles to receive points in order to reach the next level. If you fail to get the required number of points before the round timer runs out, it results in a game over. If you complete all levels available, congratulations! You have beaten the game.
