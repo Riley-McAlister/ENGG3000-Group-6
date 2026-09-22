@@ -1,0 +1,12 @@
+# ESP-IDF Build & Dependencies
+build/
+managed_components/
+dependencies.lock
+
+# Config Files
+sdkconfig*
+
+# Dev Environment Caches
+.vscode/
+.pytest_cache/
+__pycache__/
