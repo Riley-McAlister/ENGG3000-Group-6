@@ -11,20 +11,23 @@
 #endif
 
 #include <winsock2.h>
+#include <stdint.h>
 
-typedef struct{
-    float distance[6];
-} SensorData;
-
-typedef struct{
-    float x;
-    float y;
-    int valid;
-} PlayerPosition;
+typedef struct {
+  uint8_t id;
+  float distance[2];
+} BoxPayload;
+typedef struct {
+    float data[6];
+} DataPayload;
+typedef struct {
+    float loc[2];
+} PlayerLoc;
 
 int initUDP(int port);
-int receiveUDPSingle(SensorData* data);
-PlayerPosition calculatePlayerPosition(SensorData *data);
+int receiveUDPBoxPayload(BoxPayload* data);
+int receiveUDPDataPayload(DataPayload* data);
+int receivePlayerLoc(PlayerLoc* data);
 void closeUDP(void);
 
 #endif
