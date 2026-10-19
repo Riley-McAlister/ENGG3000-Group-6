@@ -3,6 +3,7 @@
 #include <time.h>
 #include <raylib.h>
 #include "network.h"
+#include <math.h>
 
 #define PORT 55555
 
@@ -16,14 +17,15 @@
 #define TIMEOUT 3.0f
 #define TIMERESPAWN 3.0f
 #define ALERTTIME 2.0f
+#define CONVERT_SCALE_X 8.68f
+#define CONVERT_SCALE_Y 12.4f
 
 int screenWidth= 1000;
 int screenHeight= 1000;
 
 typedef enum GameScreen { MENU, GAMEPLAY } GameScreen;
 
-typedef struct 
-{
+typedef struct {
     int active;
     Vector2 pos;
     float time;
@@ -36,7 +38,7 @@ typedef struct {
     float time;
 } GameAlert;
 
-GameAlert currentAlert = { 0 };
+GameAlert currentAlert= { 0 };
 
 void pauseScreen() {
     DrawRectangle(0, 0, screenWidth, screenHeight, (Color){0, 0, 0, 100});
@@ -49,11 +51,11 @@ void pauseScreen() {
     int startY= (screenHeight - barHeight) / 2;
     int fontSize= 100;
     char* text= "PAUSED";
-    int textWidth = MeasureText(text, fontSize);
+    int textWidth= MeasureText(text, fontSize);
     int textX= (screenWidth - textWidth) / 2;
     int textY= (screenHeight - fontSize) / 2;
 
-    Color barColor = { 255, 255, 255, 100 };
+    Color barColor= { 255, 255, 255, 100 };
 
     DrawRectangle(startX, startY, barWidth, barHeight, barColor);
     DrawRectangle(startX + barWidth + gap, startY, barWidth, barHeight, barColor);
@@ -95,7 +97,7 @@ void updateAlert(GameAlert *alert) {
     if (!alert->active) return;
     alert->time -= GetFrameTime();
     if (alert->time <= 0.0f) {
-        alert->active = false;
+        alert->active= false;
     }
 }
 
@@ -104,9 +106,9 @@ void drawAlert(const GameAlert *alert, int screenWidth, int screenHeight) {
     int fontSize= 150;
     int textWidth= MeasureText(alert->text, fontSize);
     int textX= (screenWidth - textWidth) / 2;
-    int textY = (screenHeight - fontSize) / 2;
-    Color alertColor = alert->color;
-    alertColor.a = alert->time / ALERTTIME * 255.0f;
+    int textY= (screenHeight - fontSize) / 2;
+    Color alertColor= alert->color;
+    alertColor.a= alert->time / ALERTTIME * 255.0f;
     DrawText(alert->text, textX, textY, fontSize, alertColor);
 }
 
@@ -117,10 +119,12 @@ int main(void)
 
     GameScreen screen= MENU;
     Vector2 playerCursor= {screenWidth / 2, screenHeight / 2};
-    SensorData data= { 0 };
-    // DataPayload payload= { 0 };
+    Vector2 targetCursor = {screenWidth / 2, screenHeight /2};
+    const float CURSOR_MAX_SPEED = 800.0f; //pixels per second
+    const float CURSOR_LERP_SPEED = 8.0f; //alternative smoothing
+    PlayerLoc pl= { 0 };
     Mole moles[MAX_MOLES];
-    int scorereq[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1000};
+    int scorereq[]= {1, 1, 1, 1, 1, 1, 1, 1, 1, 1000};
     float moleRadius= MOLE_SIZE;
     int score= 0;
     int level= 1;
@@ -129,7 +133,7 @@ int main(void)
     int gameover= false;
     float roundtimer= 30.0f;
 
-    RenderTexture2D moleSprite = LoadRenderTexture(MOLE_SIZE, MOLE_SIZE);
+    RenderTexture2D moleSprite= LoadRenderTexture(MOLE_SIZE, MOLE_SIZE);
 
     BeginTextureMode(moleSprite);
         ClearBackground(BLANK);
@@ -159,12 +163,11 @@ int main(void)
         DrawLine(moleRadius / 2.0f + (moleRadius / 12.8f), moleRadius / 1.3f, moleRadius / 2.0f + (moleRadius / 5.33f), moleRadius / 1.25f, BLACK);
     EndTextureMode();
 
-    RenderTexture2D grassSprite = LoadRenderTexture(GRASS_SIZE, GRASS_SIZE);
+    RenderTexture2D grassSprite= LoadRenderTexture(GRASS_SIZE, GRASS_SIZE);
 
     BeginTextureMode(grassSprite);
         ClearBackground((Color){40, 150, 40, 255});
-    
-        // Just draw two simple contrasting patches instead of a heavy loop
+
         DrawRectangle(0, 0, GRASS_SIZE / 4, GRASS_SIZE / 4, (Color){40, 154, 40, 255});
         DrawRectangle(GRASS_SIZE / 4, GRASS_SIZE / 4, GRASS_SIZE / 4, GRASS_SIZE / 4, (Color){40, 146, 40, 255});
     EndTextureMode();
@@ -191,17 +194,18 @@ int main(void)
 
             case GAMEPLAY:
             {
-                if(receiveUDPSingle(&data)) {
-                    
-                    PlayerPosition position = calculatePlayerPosition(&data);
-
-                    if(position.valid) {
-                        playerCursor.x = position.x;
-                        playerCursor.y = position.y;
-                    }
+                if(receivePlayerLoc(&pl)) {
+                    targetCursor.x= (pl.loc[0] * CONVERT_SCALE_X) + 132;
+                    targetCursor.y= (pl.loc[1] * CONVERT_SCALE_Y) - 612;
                 }
 
                 if(!pause && !gameover) {
+
+                        float dt = GetFrameTime();
+                        float smoothing = 1.0f -expf(- CURSOR_LERP_SPEED * dt);
+                        playerCursor.x += (targetCursor.x - playerCursor.x) * smoothing;
+                        playerCursor.y += (targetCursor.y - playerCursor.y) * smoothing;
+                        
                         updateAlert(&currentAlert);
                         for(int i= 0; i < count; i++) { moles[i].time-= GetFrameTime(); }
                         roundtimer-= GetFrameTime();
@@ -216,7 +220,7 @@ int main(void)
                         score= 0;
                         level++;
 
-                        if(level % 5 == 0) {
+                        if(level % 5== 0) {
                             triggerAlert("MOLE +1", GOLD);
                             } else {
                             triggerAlert("LEVEL +1", GOLD);
@@ -238,10 +242,10 @@ int main(void)
                     if (playerCursor.y > screenHeight - PLAYER_BUFFER) playerCursor.y= screenHeight - PLAYER_BUFFER;
 
                     for(int i= 0; i< count; i++) {
-                        if(moles[i].time<= 0 && moles[i].active == true) 
+                        if(moles[i].time<= 0 && moles[i].active== true) 
                         {
                         despawnMole(&moles[i]);
-                        } else if (moles[i].time <= 0 && moles[i].active == false){
+                        } else if (moles[i].time <= 0 && moles[i].active== false){
                         spawnMole(&moles[i]);
                         }
 
@@ -269,8 +273,8 @@ int main(void)
                 {
                     ClearBackground(BLACK);
 
-                    for (int x = BORDER_BUFFER; x < screenWidth - BORDER_BUFFER - GRASS_SIZE; x += grassSprite.texture.width) {
-                        for (int y = BORDER_BUFFER; y < screenHeight - BORDER_BUFFER - GRASS_SIZE; y += grassSprite.texture.height) {
+                    for (int x= BORDER_BUFFER; x < screenWidth - BORDER_BUFFER - GRASS_SIZE; x += grassSprite.texture.width) {
+                        for (int y= BORDER_BUFFER; y < screenHeight - BORDER_BUFFER - GRASS_SIZE; y += grassSprite.texture.height) {
                             DrawTexture(grassSprite.texture, x, y, WHITE);
                         }
                     }
@@ -279,9 +283,9 @@ int main(void)
                     DrawRectangleLinesEx(fence, 10, BROWN);
 
                     for(int i= 0; i < count; i++) {
-                        Rectangle sourceRec = { 0, 0, moleSprite.texture.width, -moleSprite.texture.height };
-                        Rectangle destRec = { moles[i].pos.x, moles[i].pos.y, MOLE_SIZE * 2, MOLE_SIZE * 2 };
-                        Vector2 origin = { MOLE_SIZE, MOLE_SIZE };
+                        Rectangle sourceRec= { 0, 0, moleSprite.texture.width, -moleSprite.texture.height };
+                        Rectangle destRec= { moles[i].pos.x, moles[i].pos.y, MOLE_SIZE * 2, MOLE_SIZE * 2 };
+                        Vector2 origin= { MOLE_SIZE, MOLE_SIZE };
                         Color c= DARKGRAY;
                         if(moles[i].active) {
                             DrawTexturePro(moleSprite.texture, sourceRec, destRec, origin, 0, WHITE);
@@ -327,4 +331,4 @@ int main(void)
     return false;
 }
 
-// gcc game.c network.c -o game.exe -IC:/raylib/raylib/src -LC:/raylib/raylib/src -lraylib -lopengl32 -lgdi32 -lwinmm -lws2_32
+// gcc game.c network.c -o ./game.exe -IC:/raylib/raylib/src -LC:/raylib/raylib/src -lraylib -lopengl32 -lgdi32 -lwinmm -lws2_32
