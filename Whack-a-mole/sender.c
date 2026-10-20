@@ -19,6 +19,9 @@ typedef struct {
     float y;
 } SensorData;
 
+typedef struct {
+    SensorData data[6];
+} DataPayload;
 
 int main() {
     // Initialize Winsock
