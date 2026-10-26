@@ -10,6 +10,9 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
+#define BOX_COUNT 3
+#define SENSOR_COUNT 2
+
 #include <winsock2.h>
 #include <stdint.h>
 
@@ -18,7 +21,7 @@ typedef struct {
   float distance[2];
 } BoxPayload;
 typedef struct {
-    float data[6];
+  BoxPayload data[3];
 } DataPayload;
 typedef struct {
     float loc[2];

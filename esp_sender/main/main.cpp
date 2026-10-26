@@ -18,12 +18,15 @@ float duration2;
 float distance2;
 
 // ESP-NOW send info
-uint8_t gatewayAddress[]= {0xb0, 0xa7, 0x32, 0xb6, 0xa5, 0xac}; // Gateway should always be Box 1 (uint8_t hexadecimal for ESP-NOW)
+uint8_t gatewayAddress[]= {0xB0, 0xA7, 0x32, 0xB6, 0xA5, 0xAC}; // Gateway should always be Box 1 (uint8_t hexadecimal for ESP-NOW)
 String senderAddress[2]= { // String for C++ comparisons
-  "00:70:07:7c:8a:58", // Box 2
-  "04:b2:47:fa:77:dc" // Box 3
+  "00:70:07:7C:8A:58", // Box 2
+  "04:B2:47:FA:77:DC" // Box 3
 };
 esp_now_peer_info_t gateway;
+
+unsigned long prevMs= 0;
+const long interval= 100;
 
 typedef struct {
   uint8_t id;
@@ -49,6 +52,8 @@ void setup() {
   pinMode(trigPin2, OUTPUT);
   pinMode(echoPin2, INPUT);
 
+  delay(500);
+
   WiFi.mode(WIFI_STA);
 
   esp_now_init();
@@ -72,28 +77,31 @@ void setup() {
 }
 
 void loop() {
-  digitalWrite(trigPin1, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPin1, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin1, LOW);
-  duration1= pulseIn(echoPin1, HIGH, 20000);
-  distance1= (duration1 * 0.034) / 2;
+  unsigned long currMs= millis();
 
-  digitalWrite(trigPin2, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPin2, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin2, LOW);
-  duration2= pulseIn(echoPin2, HIGH, 20000);
-  distance2= (duration2 * 0.034) / 2;
+  if (currMs - prevMs >= interval) {
+    prevMs= currMs;
+    digitalWrite(trigPin1, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin1, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin1, LOW);
+    duration1= pulseIn(echoPin1, HIGH, 15000);
+    distance1= duration1 * 0.017;
 
-  box.distance[0]= distance1;
-  box.distance[1]= distance2;
+    digitalWrite(trigPin2, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin2, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin2, LOW);
+    duration2= pulseIn(echoPin2, HIGH, 15000);
+    distance2= duration2 * 0.017;
+
+    box.distance[0]= distance1;
+    box.distance[1]= distance2;
 
   // ESP-NOW
-  if(box.distance[0] != 0.0f && box.distance[1] != 0.0f) {
-  esp_now_send(gateway.peer_addr, (uint8_t *)&box, sizeof(box));
+    esp_now_send(gateway.peer_addr, (uint8_t *)&box, sizeof(box));
   }
-  delay(250);
+delay(1);
 }

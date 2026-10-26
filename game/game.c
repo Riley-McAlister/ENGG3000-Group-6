@@ -3,14 +3,15 @@
 #include <time.h>
 #include <raylib.h>
 #include "network.h"
+#include <math.h>
 
 #define PORT 55555
 
 #define MAX_MOLES 5
-#define BORDER_BUFFER 100
-#define PLAYER_SIZE 32
-#define MOLE_SIZE 96
-#define GRASS_SIZE 64
+#define BORDER_BUFFER 50
+#define PLAYER_SIZE 16
+#define MOLE_SIZE 48
+#define GRASS_SIZE 32
 #define PLAYER_BUFFER (BORDER_BUFFER + PLAYER_SIZE)
 #define MOLE_BUFFER (BORDER_BUFFER + MOLE_SIZE)
 #define TIMEOUT 3.0f
@@ -19,10 +20,21 @@
 #define CONVERT_SCALE_X 8.68f
 #define CONVERT_SCALE_Y 12.4f
 
-int screenWidth= 2000;
-int screenHeight= 2000;
+int screenWidth= 960;
+int screenHeight= 960;
 
-typedef enum GameScreen { MENU, GAMEPLAY } GameScreen;
+// Anchor sensor's physical locations for calculations (in cm) 
+// Center point of the sensors are 11mm from the center of the box
+const float SensPos[BOX_COUNT * SENSOR_COUNT][2]= {
+{36.4f, 0.0f},
+{38.6f, 0.0f}, // Box 1 centred at 37.5cm
+{73.9f, 0.0f},
+{76.1f, 0.0f}, // Box 2 centred at 75cm
+{111.4f, 0.0f},
+{113.6f, 0.0f} // Box 3 centred at 112.5cm
+};
+
+typedef enum GameScreen { MENU, GAMEPLAY, SETTINGS } GameScreen;
 
 typedef struct {
     int active;
@@ -36,6 +48,15 @@ typedef struct {
     Color color;
     float time;
 } GameAlert;
+
+typedef struct {
+    int width;
+    int height;
+    const char *label;
+} ResolutionOption;
+
+DataPayload dp;
+PlayerLoc pl;
 
 GameAlert currentAlert= { 0 };
 
@@ -100,25 +121,97 @@ void updateAlert(GameAlert *alert) {
     }
 }
 
-void drawAlert(const GameAlert *alert, int screenWidth, int screenHeight) {
+void drawAlert(const GameAlert *alert, int width, int height) {
     if (!alert->active) { return; }
     int fontSize= 150;
     int textWidth= MeasureText(alert->text, fontSize);
-    int textX= (screenWidth - textWidth) / 2;
-    int textY= (screenHeight - fontSize) / 2;
+    int textX= (width - textWidth) / 2;
+    int textY= (height - fontSize) / 2;
     Color alertColor= alert->color;
     alertColor.a= alert->time / ALERTTIME * 255.0f;
     DrawText(alert->text, textX, textY, fontSize, alertColor);
 }
 
+ // Trilateration algorithm supporting 3 to 6 sensors with Least Squares & Circle Intersection
+void calculatePlayerLoc() {
+  int valid_count= 0;
+  for (int i= 0; i < BOX_COUNT; i++) {
+    for (int j= 0; j < SENSOR_COUNT; j++) {
+        if (dp.data[i].distance[j] > 0.0f) {
+            valid_count++;
+        }
+      }
+    }
+
+  if (valid_count < 3) {
+    return; // Need at least 3 sensors for a calculation
+  }
+
+  float best_x= 0.0f;
+  float best_y= 0.0f;
+  float min_err= 1e9f; // Start with a very high err
+
+  // Playfield boundaries (in cm): X from 0 to 150, Y from (0) 60 to 200
+  // Step size of 2.0 cm: 75 * 70= 5250 comparisons
+  for (float x= 0.0f; x <= 150.0f; x+= 2.0f) {
+    for (float y= 60.0f; y <= 200.0f; y+= 2.0f) { // 60cm deadzone
+      float total_err= 0.0f;
+      int active_comparisons= 0;
+
+      for (int i= 0; i < BOX_COUNT; i++) {
+        for (int j= 0; j < SENSOR_COUNT; j++) {
+            if (dp.data[i].distance[j] > 0.0f) {
+              int sens_idx= (i * SENSOR_COUNT) + j;
+              float dx= x - SensPos[sens_idx][0];
+              float dy= y - SensPos[sens_idx][1];
+
+              float pred_dist_sq= (dx * dx) + (dy * dy);
+              float target_dist= dp.data[i].distance[j];
+              float target_dist_sq= target_dist * target_dist;
+              float diff= pred_dist_sq - target_dist_sq;
+
+              total_err+= diff * diff;
+              active_comparisons++;
+              }
+            }
+          }
+
+      if (active_comparisons > 0) {
+        float avg_err= total_err / active_comparisons;
+        if (avg_err < min_err) {
+          min_err= avg_err;
+          best_x= x;
+          best_y= y;
+        }
+      }
+    }
+  }
+  // Update player location struct with the best grid match
+  pl.loc[0]= best_x;
+  pl.loc[1]= best_y;
+  printf("Calculated grid coordinates: [%0.f, %0.f]\n", pl.loc[0], pl.loc[1]);
+}
+
 int main(void)
 {
+    SetConfigFlags(FLAG_VSYNC_HINT);
     InitWindow(screenWidth, screenHeight, "Whack-a-Mole");
     initUDP(PORT);
 
     GameScreen screen= MENU;
+
+    ResolutionOption resOptions[]= {
+        { 960, 960, "960 x 960"},
+        { 1280, 1280, "1280 x 1280" },
+        { 1920, 1920, "1920 x 1920" }
+    };
+    int numResolutions= 3;
+    int selectedResIndex= 0;
+
     Vector2 playerCursor= {screenWidth / 2, screenHeight / 2};
-    PlayerLoc pl= { 0 };
+    Vector2 targetCursor= {screenWidth / 2, screenHeight / 2};
+    const float CURSOR_MAX_SPEED= 1000.0f;
+    const float CURSOR_LERP_SPEED= 10.0f;
     Mole moles[MAX_MOLES];
     int scorereq[]= {1, 1, 1, 1, 1, 1, 1, 1, 1, 1000};
     float moleRadius= MOLE_SIZE;
@@ -186,19 +279,57 @@ int main(void)
                     spawnMole(&moles[i]);
                 }
                 if (IsKeyPressed(KEY_ENTER)) { screen= GAMEPLAY; }
+                if (IsKeyPressed(KEY_S)) { screen= SETTINGS; }
+            } break;
+
+            case SETTINGS:
+            {
+                int oldWidth= GetScreenWidth();
+                int oldHeight= GetScreenHeight();
+
+                if (IsKeyPressed(KEY_DOWN)) {
+                    selectedResIndex= (selectedResIndex + 1) % numResolutions;
+                }
+                if (IsKeyPressed(KEY_UP)) {
+                    selectedResIndex= (selectedResIndex - 1 + numResolutions) % numResolutions;
+                }
+                if (IsKeyPressed(KEY_ENTER)) {
+                    screenWidth= resOptions[selectedResIndex].width;
+                    screenHeight= resOptions[selectedResIndex].height;
+
+                    Vector2 currentPos= GetWindowPosition();
+
+                    // 2. Apply the new size
+                    SetWindowSize(screenWidth, screenHeight);
+
+                    // 3. Shift the position so the center point remains identical
+                    int shiftX= currentPos.x - (screenWidth - oldWidth) / 2;
+                    int shiftY= currentPos.y - (screenHeight - oldHeight) / 2;
+                    
+                    SetWindowPosition(shiftX, shiftY);
+                }
+                if (IsKeyPressed(KEY_BACKSPACE)) {
+                    screen= MENU;
+                }
             } break;
 
             case GAMEPLAY:
             {
-                if(receivePlayerLoc(&pl)) {
-                    playerCursor.x= (pl.loc[0] * CONVERT_SCALE_X) + 132;
-                    playerCursor.y= (pl.loc[1] * CONVERT_SCALE_Y) - 612;
+                if(receiveUDPDataPayload(&dp)) {
+                    calculatePlayerLoc();
+                    targetCursor.x= (pl.loc[0] * CONVERT_SCALE_X) + 132;
+                    targetCursor.y= (pl.loc[1] * CONVERT_SCALE_Y) - 612;
+
+                    float dt= GetFrameTime();
+                    float smoothing= 1.0f - expf(-CURSOR_LERP_SPEED * dt);
+                    playerCursor.x+= (targetCursor.x - playerCursor.x) * smoothing;
+                    playerCursor.y+= (targetCursor.y - playerCursor.y) * smoothing;
                 }
 
                 if(!pause && !gameover) {
-                        updateAlert(&currentAlert);
-                        for(int i= 0; i < count; i++) { moles[i].time-= GetFrameTime(); }
-                        roundtimer-= GetFrameTime();
+                    updateAlert(&currentAlert);
+                    for(int i= 0; i < count; i++) { moles[i].time-= GetFrameTime(); }
+                    roundtimer-= GetFrameTime();
                     }
 
                     if(roundtimer <= 0.0f) {
@@ -232,15 +363,13 @@ int main(void)
                     if (playerCursor.y > screenHeight - PLAYER_BUFFER) playerCursor.y= screenHeight - PLAYER_BUFFER;
 
                     for(int i= 0; i< count; i++) {
-                        if(moles[i].time<= 0 && moles[i].active== true) 
-                        {
+                        if(moles[i].time<= 0 && moles[i].active== true) {
                         despawnMole(&moles[i]);
-                        } else if (moles[i].time <= 0 && moles[i].active== false){
+                        } else if (moles[i].time <= 0 && moles[i].active== false) {
                         spawnMole(&moles[i]);
                         }
 
-                        if(CheckCollisionCircles(playerCursor, PLAYER_SIZE, moles[i].pos, moleRadius) && moles[i].active)
-                        {
+                        if(CheckCollisionCircles(playerCursor, PLAYER_SIZE, moles[i].pos, moleRadius) && moles[i].active) {
                             score++;
                             despawnMole(&moles[i]);
                         }
@@ -250,24 +379,76 @@ int main(void)
         }
 
         BeginDrawing();
-            ClearBackground(RAYWHITE);
+        ClearBackground(RAYWHITE);
             switch(screen) {
                 case MENU:
                 {
-                    int fontSize= 100;
-                    DrawText("WHACK-A-MOLE", screenWidth / 2 - MeasureText("WHACK-A-MOLE", fontSize) / 2, screenHeight / 2.5f, fontSize, DARKGRAY);
-                    DrawText("Press ENTER to start", screenWidth / 2 - MeasureText("Press ENTER to Start", (fontSize / 2)) / 2, screenHeight / 2, (fontSize / 2), GRAY);
+                    // Scale font sizes relative to the virtual resolution
+                    int fontSize= (int)(screenWidth / 10.0f); // Title
+
+                    const char *titleText= "WHACK-A-MOLE";
+                    const char *startText= "Press ENTER to start";
+                    const char *settingsText= "Press S for Settings";
+
+                    DrawText(titleText, 
+                            screenWidth / 2 - MeasureText(titleText, fontSize) / 2, 
+                            screenHeight * 0.30f, 
+                            fontSize, 
+                            DARKGRAY);
+
+                    fontSize/= 2; // Start prompt
+
+                    DrawText(startText, 
+                            screenWidth / 2 - MeasureText(startText, fontSize) / 2, 
+                            screenHeight * 0.48f, 
+                            fontSize, 
+                            GRAY);
+
+                    fontSize /= 1.5f; // Settings
+
+                    DrawText(settingsText, 
+                            screenWidth / 1.33f - MeasureText(settingsText, fontSize) / 2, 
+                            screenHeight * 0.88f, 
+                            fontSize, 
+                            GRAY);
+                } break;
+
+                case SETTINGS:
+                {
+                    int fontSize= (int)(screenWidth / 10.0f);   
+                    DrawText("SETTINGS", screenWidth / 2 - MeasureText("SETTINGS", fontSize) / 2, screenHeight * 0.15f, fontSize, DARKGRAY);
+                    
+                    int startY= screenHeight * 0.35f;
+                    int spacing= screenHeight * 0.1f;
+                    
+                    fontSize= (int)(screenWidth / 20.0f);
+                    for (int i= 0; i < numResolutions; i++) {
+                        Color col= (i== selectedResIndex) ? BLUE : DARKGRAY;
+                        int itemWidth= MeasureText(resOptions[i].label, fontSize);
+                        DrawText(resOptions[i].label, screenWidth / 2 - itemWidth / 2, startY + (i * spacing), fontSize, col);
+                        if (i== selectedResIndex) {
+                            DrawText(">", screenWidth / 2 - itemWidth / 2 - 40, startY + (i * spacing), fontSize, BLUE);
+                        }
+                    }
+
+                    fontSize= (int)(screenWidth / 25.0f);   
+                    DrawText("Use UP/DOWN to select, ENTER to apply", screenWidth / 2 - MeasureText("Use UP/DOWN to select, ENTER to apply", fontSize) / 2, screenHeight * 0.80f, fontSize, GRAY);
+                    DrawText("Press BACKSPACE to return", screenWidth / 2 - MeasureText("Press BACKSPACE to return", fontSize) / 2, screenHeight * 0.85f, fontSize, GRAY);
                 } break;
 
                 case GAMEPLAY:
                 {
                     ClearBackground(BLACK);
 
-                    for (int x= BORDER_BUFFER; x < screenWidth - BORDER_BUFFER - GRASS_SIZE; x += grassSprite.texture.width) {
-                        for (int y= BORDER_BUFFER; y < screenHeight - BORDER_BUFFER - GRASS_SIZE; y += grassSprite.texture.height) {
-                            DrawTexture(grassSprite.texture, x, y, WHITE);
+                    BeginScissorMode(BORDER_BUFFER, BORDER_BUFFER, screenWidth - (BORDER_BUFFER * 2), screenHeight - (BORDER_BUFFER * 2));
+                    {
+                        for (int x= BORDER_BUFFER; x < screenWidth - BORDER_BUFFER; x += GRASS_SIZE) {
+                            for (int y= BORDER_BUFFER; y < screenHeight - BORDER_BUFFER; y += GRASS_SIZE) {
+                                DrawTexture(grassSprite.texture, x, y, WHITE);
+                            }
                         }
                     }
+                    EndScissorMode();
 
                     Rectangle fence= { BORDER_BUFFER, BORDER_BUFFER, screenWidth - (BORDER_BUFFER * 2), screenHeight - (BORDER_BUFFER * 2) };
                     DrawRectangleLinesEx(fence, 10, BROWN);
@@ -294,16 +475,16 @@ int main(void)
 
                     int fontSize= 30;
                     int buffer= fontSize;
+
                     DrawText(TextFormat("Score: %i", score), fontSize, 20, fontSize, WHITE);
                     buffer= MeasureText((TextFormat("[%.0f, %.0f]", playerCursor.x, playerCursor.y)), fontSize) + 20;
-                    DrawText(TextFormat("[%.0f, %.0f]", playerCursor.x, playerCursor.y), screenWidth - buffer, screenHeight - fontSize, fontSize, WHITE);
-                    buffer= fontSize;
                     buffer+= MeasureText((TextFormat("Level: %i", level)), fontSize);
                     DrawText(TextFormat("Level: %i", level), screenWidth - buffer, 20, fontSize, WHITE);
                     buffer+= MeasureText((TextFormat("Moles: %i", count)), fontSize) + fontSize;
                     DrawText(TextFormat("Moles: %i", count), screenWidth - buffer, 20, fontSize, WHITE);
                     buffer+= MeasureText((TextFormat("Time: %.0f", roundtimer)), fontSize) + fontSize;
                     DrawText(TextFormat("Time: %.0f", roundtimer), screenWidth - buffer, 20, fontSize, WHITE);
+                    DrawText(TextFormat("[%.0f, %.0f]", playerCursor.x, playerCursor.y), screenWidth - buffer, screenHeight - fontSize, fontSize, WHITE);
 
                     if(gameover) { 
                         gameoverScreen();
@@ -313,7 +494,7 @@ int main(void)
                 } break;
             }
         EndDrawing();
-    }
+        } 
     UnloadRenderTexture(moleSprite);
     UnloadRenderTexture(grassSprite);
     closeUDP();

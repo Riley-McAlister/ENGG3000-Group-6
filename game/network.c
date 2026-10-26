@@ -11,6 +11,17 @@
 
 static SOCKET UDPSocket= INVALID_SOCKET;
 
+// Anchor sensor's physical locations for calculations (in cm) 
+// Center point of the sensors are 11mm from the center of the box
+const float SensPos[BOX_COUNT * SENSOR_COUNT][2]= {
+{36.4f, 0.0f},
+{38.6f, 0.0f}, // Box 1 centred at 37.5cm
+{73.9f, 0.0f},
+{76.1f, 0.0f}, // Box 2 centred at 75cm
+{111.4f, 0.0f},
+{113.6f, 0.0f} // Box 3 centred at 112.5cm
+};
+
 int initUDP(int port) {
     WSADATA WSAData;
 
