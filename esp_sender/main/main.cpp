@@ -5,6 +5,7 @@
 #include <esp_wifi.h>
 
 #define CHANNEL 1
+#define FILTER_SIZE 3
 
 // Sensor config
 const int trigPin1= 26;
@@ -33,7 +34,17 @@ typedef struct {
   float distance[2];
 } BoxPayload;
 
+typedef struct {
+  float readings[FILTER_SIZE]= { 0 };
+  int count= 0;
+  int nextIndex= 0;
+  float lastFiltered= 0;
+} DistanceFilter;
+
 BoxPayload box;
+
+DistanceFilter filter1;
+DistanceFilter filter2;
 
 void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
   Serial.printf("Sending Box %d: [distance1: %.2f cm, distance2: %.2f cm]", (box.id + 1), distance1, distance2);
@@ -42,6 +53,50 @@ void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
   } else {
     Serial.printf(" | Failed\n");
   }
+}
+
+float medianOfThree(float a, float b, float c) {
+  if(a > b) {
+    float temp= a;
+    a= b;
+    b= temp;
+  }
+  if(b > c) {
+    float temp= b;
+    b= c;
+    c= temp;
+  }
+  if(a > b) {
+    float temp= a;
+    a= b;
+    b= temp;
+  }
+  return b;
+}
+
+float filterDistance(DistanceFilter &filter, float newReading){
+    if( newReading < 0.0f) {
+        return filter.lastFiltered; // Ignore invalid readings
+    }
+    filter.readings[filter.nextIndex]= newReading;
+    filter.nextIndex= (filter.nextIndex + 1) % FILTER_SIZE;
+
+    if (filter.count < FILTER_SIZE) {   
+        filter.count++;
+    }
+
+    if(filter.count < FILTER_SIZE) {
+        filter.lastFiltered= newReading; // Not enough readings yet, return the new reading
+        return newReading;
+    }
+
+    filter.lastFiltered= medianOfThree(
+        filter.readings[0], 
+        filter.readings[1], 
+        filter.readings[2]
+    );
+
+    return filter.lastFiltered;
 }
 
 void setup() {
@@ -97,8 +152,8 @@ void loop() {
     duration2= pulseIn(echoPin2, HIGH, 15000);
     distance2= duration2 * 0.017;
 
-    box.distance[0]= distance1;
-    box.distance[1]= distance2;
+    box.distance[0]= filteredDistance1;
+    box.distance[1]= filteredDistance2;
 
   // ESP-NOW
     esp_now_send(gateway.peer_addr, (uint8_t *)&box, sizeof(box));

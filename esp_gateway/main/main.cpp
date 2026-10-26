@@ -8,6 +8,7 @@
 #define CHANNEL 1
 #define BOX_COUNT 3
 #define SENSOR_COUNT 2
+#define FILTER_SIZE 3
 #define PLAYFIELD_X 150.0f
 #define PLAYFIELD_Y 200.0f
 
@@ -48,8 +49,18 @@ typedef struct {
   float loc[2];
 } PlayerLoc;
 
+typedef struct {
+  float readings[FILTER_SIZE]= { 0 };
+  int count= 0;
+  int nextIndex= 0;
+  float lastFiltered= 0;
+} DistanceFilter;
+
 DataPayload dp;
 PlayerLoc pl;
+
+DistanceFilter filter1;
+DistanceFilter filter2;
 
 void WiFiEvent(WiFiEvent_t event) {
   switch (event) {
@@ -77,6 +88,50 @@ void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int data_l
     }
     // Serial.printf("Received Box %d: [distance1: %.2f cm, distance2: %.2f cm]\n", (bp.id + 1), bp.distance[0], bp.distance[1]);
   }
+}
+
+float medianOfThree(float a, float b, float c) {
+  if(a > b) {
+    float temp= a;
+    a= b;
+    b= temp;
+  }
+  if(b > c) {
+    float temp= b;
+    b= c;
+    c= temp;
+  }
+  if(a > b) {
+    float temp= a;
+    a= b;
+    b= temp;
+  }
+  return b;
+}
+
+float filterDistance(DistanceFilter &filter, float newReading){
+    if( newReading < 0.0f) {
+        return filter.lastFiltered; // Ignore invalid readings
+    }
+    filter.readings[filter.nextIndex]= newReading;
+    filter.nextIndex= (filter.nextIndex + 1) % FILTER_SIZE;
+
+    if (filter.count < FILTER_SIZE) {   
+        filter.count++;
+    }
+
+    if(filter.count < FILTER_SIZE) {
+        filter.lastFiltered= newReading; // Not enough readings yet, return the new reading
+        return newReading;
+    }
+
+    filter.lastFiltered= medianOfThree(
+        filter.readings[0], 
+        filter.readings[1], 
+        filter.readings[2]
+    );
+
+    return filter.lastFiltered;
 }
 
 void setup() {
@@ -129,8 +184,8 @@ void loop() {
     digitalWrite(trigPin2, LOW);
     duration2= pulseIn(echoPin2, HIGH, 15000);
     distance2= duration2 * 0.017;
-    dp.data[0].distance[0]= distance1;
-    dp.data[0].distance[1]= distance2;
+    dp.data[0].distance[0]= filteredDistance1;
+    dp.data[0].distance[1]= filteredDistance2;
 
     if (clientAssigned) {
       Serial.printf("Sending DataPayload: [%.2f, %.2f, %.2f, %.2f, %.2f, %.2f]",  
