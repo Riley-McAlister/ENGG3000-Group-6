@@ -62,9 +62,6 @@ PlayerLoc pl;
 DistanceFilter filter1;
 DistanceFilter filter2;
 
-float filteredDistance1= filterDistance(filter1, distance1);
-float filteredDistance2= filterDistance(filter2, distance2);
-
 void WiFiEvent(WiFiEvent_t event) {
   switch (event) {
     case ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED:
@@ -169,6 +166,8 @@ void setup() {
 
 void loop() {
   unsigned long currMs= millis();
+  float filteredDistance1= filterDistance(filter1, distance1);
+  float filteredDistance2= filterDistance(filter2, distance2);
 
   if (currMs - prevMs >= interval) {
     prevMs= currMs;

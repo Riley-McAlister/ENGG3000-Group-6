@@ -46,9 +46,6 @@ BoxPayload box;
 DistanceFilter filter1;
 DistanceFilter filter2;
 
-float filteredDistance1= filterDistance(filter1, distance1);
-float filteredDistance2= filterDistance(filter2, distance2);
-
 void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
   Serial.printf("Sending Box %d: [distance1: %.2f cm, distance2: %.2f cm]", (box.id + 1), distance1, distance2);
   if (status == ESP_NOW_SEND_SUCCESS) {
@@ -136,6 +133,8 @@ void setup() {
 
 void loop() {
   unsigned long currMs= millis();
+  float filteredDistance1= filterDistance(filter1, distance1);
+  float filteredDistance2= filterDistance(filter2, distance2);
 
   if (currMs - prevMs >= interval) {
     prevMs= currMs;
@@ -155,8 +154,8 @@ void loop() {
     duration2= pulseIn(echoPin2, HIGH, 15000);
     distance2= duration2 * 0.017;
 
-    box.distance[0]= filter1;
-    box.distance[1]= filter2;
+    box.distance[0]= filteredDistance1;
+    box.distance[1]= filteredDistance2;
 
   // ESP-NOW
     esp_now_send(gateway.peer_addr, (uint8_t *)&box, sizeof(box));
