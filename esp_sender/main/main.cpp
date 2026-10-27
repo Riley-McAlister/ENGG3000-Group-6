@@ -46,6 +46,9 @@ BoxPayload box;
 DistanceFilter filter1;
 DistanceFilter filter2;
 
+float filteredDistance1= filterDistance(filter1, distance1);
+float filteredDistance2= filterDistance(filter2, distance2);
+
 void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
   Serial.printf("Sending Box %d: [distance1: %.2f cm, distance2: %.2f cm]", (box.id + 1), distance1, distance2);
   if (status == ESP_NOW_SEND_SUCCESS) {
@@ -56,17 +59,17 @@ void OnDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
 }
 
 float medianOfThree(float a, float b, float c) {
-  if(a > b) {
+  if (a > b) {
     float temp= a;
     a= b;
     b= temp;
   }
-  if(b > c) {
+  if (b > c) {
     float temp= b;
     b= c;
     c= temp;
   }
-  if(a > b) {
+  if (a > b) {
     float temp= a;
     a= b;
     b= temp;
@@ -74,9 +77,9 @@ float medianOfThree(float a, float b, float c) {
   return b;
 }
 
-float filterDistance(DistanceFilter &filter, float newReading){
-    if( newReading < 0.0f) {
-        return filter.lastFiltered; // Ignore invalid readings
+float filterDistance(DistanceFilter &filter, float newReading) {
+    if (newReading < 0.0f) { // Ignore invalid readings
+        return filter.lastFiltered; 
     }
     filter.readings[filter.nextIndex]= newReading;
     filter.nextIndex= (filter.nextIndex + 1) % FILTER_SIZE;
@@ -85,8 +88,8 @@ float filterDistance(DistanceFilter &filter, float newReading){
         filter.count++;
     }
 
-    if(filter.count < FILTER_SIZE) {
-        filter.lastFiltered= newReading; // Not enough readings yet, return the new reading
+    if (filter.count < FILTER_SIZE) { // Not enough readings yet, return the new reading
+        filter.lastFiltered= newReading; 
         return newReading;
     }
 
@@ -152,8 +155,8 @@ void loop() {
     duration2= pulseIn(echoPin2, HIGH, 15000);
     distance2= duration2 * 0.017;
 
-    box.distance[0]= filteredDistance1;
-    box.distance[1]= filteredDistance2;
+    box.distance[0]= filter1;
+    box.distance[1]= filter2;
 
   // ESP-NOW
     esp_now_send(gateway.peer_addr, (uint8_t *)&box, sizeof(box));

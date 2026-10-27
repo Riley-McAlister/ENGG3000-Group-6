@@ -62,6 +62,9 @@ PlayerLoc pl;
 DistanceFilter filter1;
 DistanceFilter filter2;
 
+float filteredDistance1= filterDistance(filter1, distance1);
+float filteredDistance2= filterDistance(filter2, distance2);
+
 void WiFiEvent(WiFiEvent_t event) {
   switch (event) {
     case ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED:
@@ -78,11 +81,11 @@ void WiFiEvent(WiFiEvent_t event) {
 }
 
 void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int data_len) {
-  if(data_len == sizeof(BoxPayload)) {
+  if (data_len == sizeof(BoxPayload)) {
     BoxPayload bp;
     memcpy(&bp, data, sizeof(BoxPayload));
 
-    if(bp.id < BOX_COUNT) {
+    if (bp.id < BOX_COUNT) {
       dp.data[bp.id].distance[0]= bp.distance[0];
       dp.data[bp.id].distance[1]= bp.distance[1];
     }
@@ -91,17 +94,17 @@ void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int data_l
 }
 
 float medianOfThree(float a, float b, float c) {
-  if(a > b) {
+  if (a > b) {
     float temp= a;
     a= b;
     b= temp;
   }
-  if(b > c) {
+  if (b > c) {
     float temp= b;
     b= c;
     c= temp;
   }
-  if(a > b) {
+  if (a > b) {
     float temp= a;
     a= b;
     b= temp;
@@ -109,9 +112,9 @@ float medianOfThree(float a, float b, float c) {
   return b;
 }
 
-float filterDistance(DistanceFilter &filter, float newReading){
-    if( newReading < 0.0f) {
-        return filter.lastFiltered; // Ignore invalid readings
+float filterDistance(DistanceFilter &filter, float newReading) {
+    if (newReading < 0.0f) { // Ignore invalid readings
+        return filter.lastFiltered; 
     }
     filter.readings[filter.nextIndex]= newReading;
     filter.nextIndex= (filter.nextIndex + 1) % FILTER_SIZE;
@@ -120,8 +123,8 @@ float filterDistance(DistanceFilter &filter, float newReading){
         filter.count++;
     }
 
-    if(filter.count < FILTER_SIZE) {
-        filter.lastFiltered= newReading; // Not enough readings yet, return the new reading
+    if (filter.count < FILTER_SIZE) { // Not enough readings yet, return the new reading
+        filter.lastFiltered= newReading; 
         return newReading;
     }
 
